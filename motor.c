@@ -4,16 +4,33 @@
 
 #define SERVO_SHIFT (0) // PORTC relay connected to Servo.
 #define HZDELAY (20000) // alternate frequency
+#define HOLD_DELAY (2) // delay between all states
+#define STATE_DELAY (1)
+#define inhaleMask (0xF0) // grab inhale time
+#define exhaleMask (0x0F) // grab exhale time
 #define MASK(x) (1ul << x)
 #define PIT_DELAY ((10485760 * 1) - 1) // ~ 1 second PIT delay
 #define SW_SWITCH (4) // starts the meditation
-#define BREATH_DELAY (2) // 2 seconds between inhale and exhale
 
 void initPins(void);
 void initSysTick(void);
 
-static short breathTime = 0;
+static short breathTime = 0; // timer for inhaling and exhaling
+static short delayTime = 0; // value for delay between states
 static short inMeditation = 0;
+static short inhaleExhaleSettings[3] = {0x22, 0x32, 0x43}; // Inhale/Exhale timer
+static short breathingSetting = 0; // default
+
+enum breathState
+{
+	noBreath =0,
+	inhaling,
+	holding,
+	exhaling
+};	
+
+static short currentState = noBreath; // init the breath state
+static short prevState = noBreath; // Used to determine if we've changed states
 
 int main()
 {
@@ -55,7 +72,7 @@ void initPins()
 
 void initSysTick()
 {
-	SysTick->LOAD = (48000000L/16); // lower sysclock to 3Mhz to fit in Load
+	SysTick->LOAD = (48000000L/3); // lower sysclock to 16Mhz to fit in Load
 	NVIC_SetPriority(SysTick_IRQn, 3);
 	SysTick->VAL = 0;
 	SysTick->CTRL = SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk; // Enable interrupts and timer
@@ -63,13 +80,56 @@ void initSysTick()
 
 void SysTick_Handler()
 {
+	// if we are in an intermmediat state, we delay breathTime
 	if(inMeditation)
 			{
-				breathTime++; // increment the seconds
-				if(breathTime >= BREATH_DELAY)
+				switch(currentState)
 				{
-					PTC->PTOR |= MASK(SERVO_SHIFT); // toggle servo motor
-					breathTime = 0;
+					case noBreath:
+						delayTime++;
+						if(delayTime >= STATE_DELAY)
+						{
+							delayTime = 0;
+							currentState = inhaling;
+						}
+						break;
+					case inhaling:
+						breathTime++; // increment the seconds
+						if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
+						{
+							currentState = noBreath;
+							breathTime = 0;
+						}
+						break;
+					case holding:
+						delayTime++;
+						if(delayTime >= HOLD_DELAY)
+						{
+							delayTime = 0;
+							currentState = exhaling;
+						}
+						break;
+					case exhaling:
+						breathTime++; // increment the seconds
+						if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
+						{
+							currentState = noBreath;
+							breathTime = 0;
+						}
+						break;
+					default:
+						currentState = noBreath;
+						delayTime = 0;
+						break;
+				}
+				prevState = currentState;
+				if((prevState != currentState) && (currentState == inhaling || currentState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
+				{
+					PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
+				}
+				else
+				{
+					PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
 				}
 			}
 }
