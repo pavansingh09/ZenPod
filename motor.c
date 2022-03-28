@@ -38,7 +38,7 @@
 void initPins(void);
 void initSysTick(void);
 void breathStateMachine(void);
-void handleLedTimes(void);
+void handleLedTimes(short); // timer, forced plus? forced minus?
 void handleHeatPWM(void);
 void handleMeditationStatus(void);
 void setMedOnOffSettings(short);
@@ -84,6 +84,13 @@ enum medTimeState
 	percent100
 };
 
+enum medTransitionType
+{
+	_timer,
+	_plus,
+	_minus
+};
+
 // Enum state globals
 static short currentMedState; // init the breath state
 static short prevMedState; // Used to determine if we've changed states
@@ -98,6 +105,22 @@ int main()
 	while(1)
 	{
 		handleMeditationStatus();
+		
+		if(PORTD->ISFR & MASK(PLUS_SWITCH))
+		{
+			handleLedTimes(_plus);
+			PORTD->ISFR &= 0xffffffff; // clear button flag
+		}
+		else if(PORTD->ISFR & MASK(MINUS_SWITCH))
+		{
+			handleLedTimes(_minus);
+			PORTD->ISFR &= 0xffffffff; // clear button flag
+		}
+		else
+		{
+			// none
+		}
+		
 		prev_medState = inMeditation;
 	}
 }
@@ -144,6 +167,7 @@ void initSysTick()
 }
 
 // Handles meditation state
+
 void handleMeditationStatus()
 {
 	if(inMeditation != prev_medState)
@@ -168,6 +192,7 @@ void handleMeditationStatus()
 }
 
 // Sets the settings based on meditation on or off
+
 void setMedOnOffSettings(short state)
 {
 	if(state == 0)
@@ -182,6 +207,7 @@ void setMedOnOffSettings(short state)
 }
 
 // determines the states for the breathing statemachine
+
 void breathStateMachine()
 {
 	switch(currentBreathState)
@@ -236,9 +262,10 @@ void breathStateMachine()
 	}
 }
 
+
 // Contains the logic for Meditation timed leds.
 
-void handleLedTimes()
+void handleLedTimes(short transitionType)
 {
 	// As per default, each LED will represent 100/numLeds percent
 	// of total meditation time. 
@@ -246,7 +273,30 @@ void handleLedTimes()
 	// MeditationTime(minutes)/numLEDS (TBD). This is be 20 minutes by default
 	// Max time is 2 hours. 
 	
-	float currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+	float currentMedRatio = 0;
+	
+	switch(transitionType)
+	{
+		case _timer:
+			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+			currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
+		break;
+		case _plus:
+			// increment only if at 3 or less
+			if(currentMedState < 4) currentMedState++;
+			// do plus
+		break;
+		case _minus:
+			// decrement only if at greater than 0
+			if(currentMedState > 0) currentMedState--;
+			// do minus
+		break;
+		default:
+			// do timer
+			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+			currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
+		break;
+	}
 	
 	currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
 	
@@ -293,6 +343,9 @@ void handleLedTimes()
 	prevMedState = currentMedState; // Save the previous state.
 }
 
+
+// Sets the LEDS to the proper state
+
 void setLedMask(short mask)
 {
 	for(int i = 0; i < MED_LED_NUM; i++)
@@ -308,6 +361,8 @@ void setLedMask(short mask)
 		mask = mask >> 1UL; // shift the mask
 	}
 }
+
+// Handles the timer
 
 void SysTick_Handler()
 {
