@@ -90,55 +90,59 @@ void SysTick_Handler()
 	// if we are in an intermmediat state, we delay breathTime
 	if(inMeditation)
 		{
-			switch(currentState)
+			breathTime++; // increment the seconds
+			if(breathTime >= BREATH_DELAY)
 			{
-				case noBreath:
-					delayTime++;
-					if(delayTime >= STATE_DELAY)
-					{
-						delayTime = 0;
-						currentState = inhaling;
-					}
-					break;
-				case inhaling:
-					breathTime++; // increment the seconds
-					if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
-					{
+				switch(currentState)
+				{
+					case noBreath:
+						delayTime++;
+						if(delayTime >= STATE_DELAY)
+						{
+							delayTime = 0;
+							currentState = inhaling;
+						}
+						break;
+					case inhaling:
+						breathTime++; // increment the seconds
+						if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
+						{
+							currentState = noBreath;
+							breathTime = 0;
+						}
+						break;
+					case holding:
+						delayTime++;
+						if(delayTime >= HOLD_DELAY)
+						{
+							delayTime = 0;
+							currentState = exhaling;
+						}
+						break;
+					case exhaling:
+						breathTime++; // increment the seconds
+						if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
+						{
+							currentState = noBreath;
+							breathTime = 0;
+						}
+						break;
+					default:
 						currentState = noBreath;
-						breathTime = 0;
-					}
-					break;
-				case holding:
-					delayTime++;
-					if(delayTime >= HOLD_DELAY)
-					{
 						delayTime = 0;
-						currentState = exhaling;
-					}
-					break;
-				case exhaling:
-					breathTime++; // increment the seconds
-					if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
-					{
-						currentState = noBreath;
-						breathTime = 0;
-					}
-					break;
-				default:
-					currentState = noBreath;
-					delayTime = 0;
-					break;
-			}
-			prevState = currentState;
-			if((prevState != currentState) && (currentState == inhaling || currentState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
-			{
-				PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
-				PTC->PSOR |= MASK(LED_GREEN);
-			}
-			else
-			{
-				PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
-				PTC->PCOR |= MASK(LED_GREEN);
+						break;
+				}
+				prevState = currentState;
+				if((prevState != currentState) && (currentState == inhaling || currentState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
+				{
+					PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
+					PTC->PSOR |= MASK(LED_GREEN);
+				}
+				else
+				{
+					PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
+					PTC->PCOR |= MASK(LED_GREEN);
+				}
 			}
 		}
 }
