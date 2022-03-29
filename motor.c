@@ -22,15 +22,15 @@
 #define MINUS_SWITCH (0)
 
 // Delays for state machine
-#define HOLD_DELAY (2) // delay between all states
-#define STATE_DELAY (1)
+#define HOLD_DELAY (1) // delay between all states
+#define STATE_DELAY (0)
 
 // State machine masks
-#define inhaleMask (0xF0) // grab inhale time
-#define exhaleMask (0x0F) // grab exhale time
+#define inhaleMask (0x00F0) // grab inhale time
+#define exhaleMask (0x000F) // grab exhale time
 
 // Misc timers
-#define MED_TIME_DEFAULT (1200) // default number of seconds
+#define MED_TIME_DEFAULT (60) // default number of seconds
 
 #define MASK(x) (1ul << x)
 
@@ -141,7 +141,7 @@ void initPins()
 // Inits the Systick to keep track of internal clock
 void initSysTick()
 {
-	SysTick->LOAD = (48000000L/16); // lower sysclock to 16Mhz to fit in Load
+	SysTick->LOAD = (48000000L/24); // lower sysclock to 1Mhz to fit in Load
 	NVIC_SetPriority(SysTick_IRQn, 3);
 	NVIC_ClearPendingIRQ(SysTick_IRQn);
 	NVIC_EnableIRQ(SysTick_IRQn);
@@ -224,9 +224,9 @@ void breathStateMachine()
 			break;
 		case inhaling:
 			breathTime++; // increment the seconds
-			if(breathTime >= (exhaleMask & inhaleExhaleSettings[breathingSetting]))
+			if(breathTime >= (inhaleMask & inhaleExhaleSettings[breathingSetting]) >> 4UL)
 			{
-				currentBreathState = noBreath;
+				currentBreathState = holding;
 				breathTime = 0;
 			}
 			break;
@@ -251,15 +251,19 @@ void breathStateMachine()
 			delayTime = 0;
 			break;
 	}
-	prevBreathState = currentBreathState;
 	if((prevBreathState != currentBreathState) && (currentBreathState == inhaling || currentBreathState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
 	{
 		PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
 	}
-	else
+	else if(!(currentBreathState == inhaling || currentBreathState == exhaling))
 	{
 		PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
 	}
+	else
+	{
+		// do nothing
+	}
+	prevBreathState = currentBreathState;
 }
 
 
