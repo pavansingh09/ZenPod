@@ -9,17 +9,17 @@
 #define LED_SERVO (7) // PORTC led if inhaling/exhaling
 
 //define 4 LEDS on PORT A
-#define LED1 (1) //PTA1
-#define LED2 (2) //PTA2
-#define LED3 (12) //PTA4
-#define LED4 (5) //PTA5
+#define LED1 (5) //PTA1
+#define LED2 (12) //PTA2
+#define LED3 (2) //PTA4
+#define LED4 (1) //PTA5
 
 // number of LEDS for med time
 #define MED_LED_NUM (4) 
 //#define 4 pin Switches on PORT D
 #define SW_SWITCH (4) // starts the meditation
-#define PLUS_SWITCH (5)
-#define MINUS_SWITCH (0)
+#define PLUS_SWITCH (0)
+#define MINUS_SWITCH (5)
 
 // Delays for state machine
 #define HOLD_DELAY (1) // delay between all states
@@ -105,8 +105,8 @@ int main()
 	initSysTick(); // init pit timer
 	while(1)
 	{
-		handleMeditationStatus();
 		handleSwitches();
+		handleMeditationStatus();
 	}
 }
 
@@ -162,6 +162,7 @@ void handleMeditationStatus()
 
 void handleSwitches()
 {
+	// Handles PLUs/MINUS switches
 	if(PORTD->ISFR & MASK(PLUS_SWITCH))
 	{
 		handleLedTimes(_plus);
@@ -176,6 +177,8 @@ void handleSwitches()
 	{
 		// none
 	}
+	
+	// Handles Meditation On/Off switch
 	if(PORTD->ISFR & MASK(SW_SWITCH))
 	{
 		// Toggle meditation
@@ -251,17 +254,20 @@ void breathStateMachine()
 			delayTime = 0;
 			break;
 	}
-	if((prevBreathState != currentBreathState) && (currentBreathState == inhaling || currentBreathState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
+	if((prevBreathState != currentBreathState))
 	{
-		PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
-	}
-	else if(!(currentBreathState == inhaling || currentBreathState == exhaling))
-	{
-		PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
+		if((currentBreathState == inhaling || currentBreathState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
+		{
+			PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
+		}
+		else
+		{
+			PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
+		}
 	}
 	else
 	{
-		// do nothing
+		// continue with current outputs
 	}
 	prevBreathState = currentBreathState;
 }
@@ -283,6 +289,8 @@ void handleLedTimes(short transitionType)
 	{
 		case _timer:
 			// do not change time calculation
+			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+			currentMedState = ceil(currentMedRatio *  MED_LED_NUM);
 		break;
 		case _plus:
 			// increment only if at 3 or less
@@ -304,12 +312,11 @@ void handleLedTimes(short transitionType)
 		break;
 		default:
 			// do timer
-			// do not change time calculation
+			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+			currentMedState = ceil(currentMedRatio *  MED_LED_NUM);
 		break;
 	}
 	
-	currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
-	currentMedState = ceil(currentMedRatio *  MED_LED_NUM);
 	// LEVELS
 	/*
 	0.01 -> 0.25 1 LED
