@@ -5,13 +5,13 @@
 
 // PORT C Define
 #define SERVO_SHIFT (0) // PORTC relay connected to Servo.
-#define LED_BLUE (3) // PORTC LED is meditation is still active
-#define LED_GREEN (7) // PORTC led if inhaling/exhaling
+#define LED_MED (3) // PORTC LED is meditation is still active
+#define LED_SERVO (7) // PORTC led if inhaling/exhaling
 
 //define 4 LEDS on PORT A
 #define LED1 (1) //PTA1
 #define LED2 (2) //PTA2
-#define LED3 (4) //PTA4
+#define LED3 (12) //PTA4
 #define LED4 (5) //PTA5
 
 // number of LEDS for med time
@@ -43,9 +43,10 @@ void handleHeatPWM(void);
 void handleMeditationStatus(void);
 void setMedOnOffSettings(short);
 void setLedMask(short);
+void handleSwitches(void);
 
 // Arrays for init
-static short portCGpio[3] = {SERVO_SHIFT, LED_BLUE, LED_GREEN};
+static short portCGpio[2] = {SERVO_SHIFT, LED_MED};
 static short portAGpio[4] = {LED1, LED2, LED3, LED4}; // LED1 indicates lowest time remaining
 static short portDGpio[3] = {MINUS_SWITCH, PLUS_SWITCH, SW_SWITCH};
 
@@ -92,8 +93,8 @@ enum medTransitionType
 };
 
 // Enum state globals
-static short currentMedState; // init the breath state
-static short prevMedState; // Used to determine if we've changed states
+static short currentMedState = percent100; // init the breath state
+static short prevMedLedState = off; // Used to determine if we've changed states
 
 static short medLedMask = 0; // contains 4 bits that will determine the LEDs states
 
@@ -105,23 +106,7 @@ int main()
 	while(1)
 	{
 		handleMeditationStatus();
-		
-		if(PORTD->ISFR & MASK(PLUS_SWITCH))
-		{
-			handleLedTimes(_plus);
-			PORTD->ISFR &= 0xffffffff; // clear button flag
-		}
-		else if(PORTD->ISFR & MASK(MINUS_SWITCH))
-		{
-			handleLedTimes(_minus);
-			PORTD->ISFR &= 0xffffffff; // clear button flag
-		}
-		else
-		{
-			// none
-		}
-		
-		prev_medState = inMeditation;
+		handleSwitches();
 	}
 }
 
@@ -133,8 +118,8 @@ void initPins()
 	// Configuring buttons
 	for(int i = 0; i < sizeof(portDGpio)/(sizeof(short)); i++)
 	{
-		PORTD->PCR[MASK(portDGpio[i])] &= ~(PORT_PCR_MUX_MASK | PORT_PCR_IRQC_MASK);
-		PORTD->PCR[MASK(portDGpio[i])] |= (PORT_PCR_MUX(1) | PORT_PCR_IRQC(10) | PORT_PCR_PE_MASK | PORT_PCR_PS_MASK); // gpio, check falling edge, pullup resistor set
+		PORTD->PCR[portDGpio[i]] &= ~(PORT_PCR_MUX_MASK | PORT_PCR_IRQC_MASK);
+		PORTD->PCR[portDGpio[i]] |= (PORT_PCR_MUX(1) | PORT_PCR_IRQC(10) | PORT_PCR_PE_MASK | PORT_PCR_PS_MASK); // gpio, check falling edge, pullup resistor set
 		PTD->PDDR &= (uint8_t)~MASK(portDGpio[i]); // set pin direction as input
 	}
 	// configuring Servo related GPIOs
@@ -142,23 +127,21 @@ void initPins()
 	{
 		PORTC->PCR[portCGpio[i]] |= PORT_PCR_MUX(1);
 		PTC->PDDR |= MASK(portCGpio[i]);
-		PTC->PDOR |= MASK(portCGpio[i]);
 		PTC->PCOR |= MASK(portCGpio[i]);
 	}
 	// configuring PORT A GPIO LEDS
 	for(int i = 0; i < sizeof(portAGpio)/(sizeof(short)); i++)
 	{
-		PORTC->PCR[portAGpio[i]] |= PORT_PCR_MUX(1);
-		PTC->PDDR |= MASK(portAGpio[i]);
-		PTC->PDOR |= MASK(portAGpio[i]);
-		PTC->PCOR |= MASK(portAGpio[i]);
+		PORTA->PCR[portAGpio[i]] |= PORT_PCR_MUX(1);
+		PTA->PDDR |= MASK(portAGpio[i]);
+		PTA->PCOR |= MASK(portAGpio[i]);
 	}
 }
 
 // Inits the Systick to keep track of internal clock
 void initSysTick()
 {
-	SysTick->LOAD = (48000000L/3); // lower sysclock to 16Mhz to fit in Load
+	SysTick->LOAD = (48000000L/16); // lower sysclock to 16Mhz to fit in Load
 	NVIC_SetPriority(SysTick_IRQn, 3);
 	NVIC_ClearPendingIRQ(SysTick_IRQn);
 	NVIC_EnableIRQ(SysTick_IRQn);
@@ -174,23 +157,41 @@ void handleMeditationStatus()
 	{
 		setMedOnOffSettings(inMeditation); 
 	}
-	if(PORTD->ISFR & MASK(SW_SWITCH))
-		{
-			// Toggle meditation
-			if(inMeditation)
-			{
-				inMeditation = 0;
-				setMedOnOffSettings(inMeditation);
-			}
-			else
-			{
-				inMeditation = 1;
-				setMedOnOffSettings(inMeditation);
-			}
-			PORTD->ISFR &= 0xffffffff; // clear button flag
-		}
+		prev_medState = inMeditation;
 }
 
+void handleSwitches()
+{
+	if(PORTD->ISFR & MASK(PLUS_SWITCH))
+	{
+		handleLedTimes(_plus);
+		PORTD->ISFR &= 0xffffffff; // clear button flag
+	}
+	else if(PORTD->ISFR & MASK(MINUS_SWITCH))
+	{
+		handleLedTimes(_minus);
+		PORTD->ISFR &= 0xffffffff; // clear button flag
+	}
+	else
+	{
+		// none
+	}
+	if(PORTD->ISFR & MASK(SW_SWITCH))
+	{
+		// Toggle meditation
+		if(inMeditation)
+		{
+			inMeditation = 0;
+			setMedOnOffSettings(inMeditation);
+		}
+		else
+		{
+			inMeditation = 1;
+			setMedOnOffSettings(inMeditation);
+		}
+		PORTD->ISFR &= 0xffffffff; // clear button flag
+	}
+}
 // Sets the settings based on meditation on or off
 
 void setMedOnOffSettings(short state)
@@ -198,11 +199,12 @@ void setMedOnOffSettings(short state)
 	if(state == 0)
 	{
 		breathTime = 0;
-		PTC->PCOR |= (MASK(SERVO_SHIFT) | MASK(LED_BLUE) | MASK(LED_GREEN));
+		PTC->PCOR |= (MASK(SERVO_SHIFT) | MASK(LED_MED));
 	}
 	else
 	{
-		PTC->PSOR |= MASK(LED_BLUE);
+		handleLedTimes(_timer);
+		PTC->PSOR |= MASK(LED_MED);
 	}
 }
 
@@ -253,12 +255,10 @@ void breathStateMachine()
 	if((prevBreathState != currentBreathState) && (currentBreathState == inhaling || currentBreathState == exhaling))// do we turn on the servo motor? If we are inhaling or exhaling we do
 	{
 		PTC->PSOR |= MASK(SERVO_SHIFT); // toggle servo motor
-		PTC->PSOR |= MASK(LED_GREEN);
 	}
 	else
 	{
 		PTC->PCOR |= MASK(SERVO_SHIFT); // when not inhaling or exhaling
-		PTC->PCOR |= MASK(LED_GREEN);
 	}
 }
 
@@ -278,28 +278,34 @@ void handleLedTimes(short transitionType)
 	switch(transitionType)
 	{
 		case _timer:
-			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
-			currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
+			// do not change time calculation
 		break;
 		case _plus:
 			// increment only if at 3 or less
-			if(currentMedState < 4) currentMedState++;
+			if(currentMedState < 4)
+			{
+				currentMedState++;
+				medTimeCurrent = medTimeMax * (float)((float)currentMedState/(float)MED_LED_NUM); // set the current time
+			}
 			// do plus
 		break;
 		case _minus:
 			// decrement only if at greater than 0
-			if(currentMedState > 0) currentMedState--;
+			if(currentMedState > 0)
+			{
+				currentMedState--;
+				medTimeCurrent = medTimeMax * (float)((float)currentMedState/(float)MED_LED_NUM);
+			}
 			// do minus
 		break;
 		default:
 			// do timer
-			currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
-			currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
+			// do not change time calculation
 		break;
 	}
 	
-	currentMedState = ceil(currentMedRatio *  MED_LED_NUM); // if 0.01 round to 1
-	
+	currentMedRatio = (float)medTimeCurrent / (float)medTimeMax;
+	currentMedState = ceil(currentMedRatio *  MED_LED_NUM);
 	// LEVELS
 	/*
 	0.01 -> 0.25 1 LED
@@ -308,7 +314,7 @@ void handleLedTimes(short transitionType)
 	0.76 -> 1.00 4 LED	
 	*/
 	// We will know the new current state prior to switch statement
-	if(prevMedState != currentMedState)
+	if(prevMedLedState != currentMedState)
 	{
 		switch(currentMedState)
 		{
@@ -334,13 +340,18 @@ void handleLedTimes(short transitionType)
 		}
 		
 		setLedMask(medLedMask);
+		if(currentMedState == 0)
+		{
+			inMeditation = 0;
+			medTimeCurrent = medTimeMax; // reset to max
+		}
 		// update the LEDS
 	}
 	else
 	{
 		// Do nothing, LEDs are in correct state
 	}
-	prevMedState = currentMedState; // Save the previous state.
+	prevMedLedState = currentMedState; // Save the previous state.
 }
 
 
@@ -370,11 +381,7 @@ void SysTick_Handler()
 	if(inMeditation)
 	{
 		medTimeCurrent--;
-		if(medTimeCurrent == 0)
-		{
-			inMeditation = 0;
-		}
 		breathStateMachine();
+		handleLedTimes(_timer);
 	}
-	handleLedTimes();
 }
