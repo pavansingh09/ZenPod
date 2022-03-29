@@ -1,6 +1,8 @@
 #include "MKL25Z4.h"                    // Device header
 #include "RTE_Components.h"             // Component selection
 #include "system_MKL25Z4.h"             // Keil::Device:Startup
+#define LEDHeater (1)			//Simulating Heater as LED on D PIN 0, This requires TPM0 and Channel 0 "Pavan"
+#define PWM_PERIOD (48000)		//Heater PWM "Pavan"
 #include "math.h"
 
 // PORT C Define
@@ -39,11 +41,13 @@ void initPins(void);
 void initSysTick(void);
 void breathStateMachine(void);
 void handleLedTimes(short); // timer, forced plus? forced minus?
-void handleHeatPWM(void);
+void handleHeatPWM(void);	//May not need this one anymore
 void handleMeditationStatus(void);
 void setMedOnOffSettings(short);
 void setLedMask(short);
 void handleSwitches(void);
+void initHeater (uint16_t);	//"Pavan"
+void setHeaterPWMDutyCycle();	//"Pavan"
 
 // Arrays for init
 static short portCGpio[2] = {SERVO_SHIFT, LED_MED};
@@ -57,6 +61,7 @@ static short inMeditation = 0;
 static short inhaleExhaleSettings[3] = {0x22, 0x32, 0x43}; // Inhale/Exhale timer
 static short breathingSetting = 0; // default
 static short prev_medState = 0; // Have we transistioned states?
+static short InhaleExhaleSetting = 0;	// setting for inhale/exhale  "Pavan"
 
 // Globals for Meditation Time LEDS.
 static uint16_t medTimeCurrent = MED_TIME_DEFAULT; // 20 minute default
@@ -103,10 +108,12 @@ int main()
 {
 	initPins(); // init speaker port
 	initSysTick(); // init pit timer
+	initHeater (PWM_PERIOD);	//Initliaze the heater "Pavan"
 	while(1)
 	{
 		handleSwitches();
 		handleMeditationStatus();
+		setHeaterPWMDutyCycle();	//"Pavan"
 	}
 }
 
@@ -396,3 +403,91 @@ void SysTick_Handler()
 		handleLedTimes(_timer);
 	}
 }
+
+//Function is added by Pavan
+void initHeater  (uint16_t period)
+{
+	// enable the clock for PORTD
+	SIM->SCGC5 |= SIM_SCGC5_PORTD_MASK;  									
+	
+	// Init the Heater PWM (Here LED is simulated as Heater)
+	PORTD->PCR[LEDHeater] &= ~PORT_PCR_MUX_MASK;
+	// Select the PIN for ALT4/TPM functionality
+	PORTD->PCR[LEDHeater] |= PORT_PCR_MUX(4);
+	// Selecting the LED pins data direction registers is not advised here. 
+	// The PWM functionality does not run in thst case
+	
+	//enable the clock for TPM
+	SIM->SCGC6 |= SIM_SCGC6_TPM0_MASK;
+	//Configure TPM
+	
+	//Set clock source for tpm : 48 MHz
+	SIM	->	SOPT2 &= ~SIM_SOPT2_TPMSRC_MASK;
+	// Selecting the clock from the board, internal clock is set to use
+	SIM -> 	SOPT2 |= SIM_SOPT2_TPMSRC (1);
+
+	SIM-> SOPT2 &= ~SIM_SOPT2_PLLFLLSEL_MASK;
+	SIM->	SOPT2 |= SIM_SOPT2_PLLFLLSEL(0);
+	
+	//Load the counter and MOD, this is active low PWM signal
+	TPM0-> MOD = period-1;
+	
+	//Set TPM count direction to up with a divide by 2 prescaler
+
+	TPM0->SC &= ~((TPM_SC_CPWMS_MASK) | (TPM_SC_CMOD_MASK) | (TPM_SC_PS_MASK));
+	TPM0->SC  = TPM_SC_CMOD(1) | TPM_SC_PS(2) | TPM_SC_TOIE_MASK | TPM_SC_CPWMS_MASK;
+	
+	//Continue operation in debug mode
+	TPM0->CONF  |= TPM_CONF_DBGMODE(3);
+	
+	// Configured as Edge Aligned PWM, 	
+	//Set channel TPM0 Channel 0 to edge-aligned low true PWM
+	TPM0_C1SC &= ~((TPM_CnSC_ELSB_MASK) | (TPM_CnSC_ELSA_MASK));
+	TPM0_C1SC |= (TPM_CnSC_ELSB(1) | TPM_CnSC_ELSA(0) |  TPM_CnSC_MSB(1)  | TPM_CnSC_MSA(0));
+	
+}	// End of Init Heater function
+
+//Function is added by Pavan
+void setHeaterPWMDutyCycle (void) 
+{
+
+//detrmine the inhale exhale setting
+//Inhale timinmg could independently determine the setting uniquely 
+//static short inhaleExhaleSettings[3] = {0x22, 0x32, 0x43}; 									// Inhale/Exhale timer
+
+InhaleExhaleSetting = ((inhaleMask & inhaleExhaleSettings[breathingSetting]) >> 4UL);
+
+short intHeatingLevel = 0;
+short intMinHeatingLevel = 0;
+short intMaxHeatingLevel = 5;
+short intOF = 0; 
+uint32_t HeaterPWM = PWM_PERIOD;
+
+switch(InhaleExhaleSetting)
+    {   
+	case 0: 	//No heating requested
+		HeaterPWM = PWM_PERIOD;
+		break;
+	case 1: 		//20% PWM
+         	HeaterPWM = (InhaleExhaleSetting) * PWM_PERIOD/intMaxHeatingLevel;
+         	break;
+	case 2: 		//40% PWM
+  		HeaterPWM = (InhaleExhaleSetting) * PWM_PERIOD/intMaxHeatingLevel;
+         	break;
+	case 3: 		//60% PWM
+		HeaterPWM = (InhaleExhaleSetting) * PWM_PERIOD/intMaxHeatingLevel;
+         	break;
+	case 4: 		//80% PWM
+ 		HeaterPWM = (InhaleExhaleSetting) * PWM_PERIOD/intMaxHeatingLevel;
+         	break;
+	case 5: 		//Maximum hearting with 100% PWM, unused in this program
+ 		HeaterPWM = (InhaleExhaleSetting) * PWM_PERIOD/intMaxHeatingLevel;
+         	break;
+	default: 	//Indetermined state, Unknown state, hold the last value
+ 		HeaterPWM = PWM_PERIOD;
+ 		break;
+    } //End of the switch case
+
+		TPM0->CONTROLS[1].CnV=HeaterPWM;
+	
+} // End of setHeaterPWMDutyCycle function
